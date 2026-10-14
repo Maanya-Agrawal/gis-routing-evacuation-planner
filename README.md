@@ -87,7 +87,7 @@ tools/fetch-osm.js                             downloads real data -> data/datas
 tools/make-synthetic.js                        generates a synthetic test city
 tools/test.js  tools/test-fetch.js             tests
 lib/                                           Leaflet 1.9.4 (vendored, works offline)
-screenshots/  docs/                            screenshots and the project report
+screenshots/                                   screenshots of the running app
 ```
 
 ## Data and credits
