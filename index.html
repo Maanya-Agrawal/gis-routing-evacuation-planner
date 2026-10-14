@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A GIS-Based Multi-Scenario Routing and Evacuation Planner</title>
+<link rel="stylesheet" href="lib/leaflet.css">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+  <aside id="side">
+    <header class="brand">
+      <div class="logo">A GIS-Based Multi-Scenario Routing and Evacuation Planner</div>
+      <div class="sub" id="dsName">loading…</div>
+      <div class="sub2" id="dsStats"></div>
+    </header>
+    <div id="banner" class="banner hidden"></div>
+
+    <!-- ============ Scenario ============ -->
+    <section class="card">
+      <h2>1 · Scenario <small>what happens to the map</small></h2>
+      <div class="seg" id="scnBtns">
+        <button data-scn="everyday" class="on">Everyday</button>
+        <button data-scn="flood">Flood</button>
+        <button data-scn="fire">Fire</button>
+        <button data-scn="quake">Earthquake</button>
+      </div>
+      <div class="row">
+        <span class="lbl">Travel by</span>
+        <div class="seg sm" id="modeBtns">
+          <button data-mode="drive" class="on">Drive</button>
+          <button data-mode="walk">Walk</button>
+        </div>
+        <label class="chk"><input type="checkbox" id="rush"> Rush hour</label>
+      </div>
+
+      <div id="scnPanels">
+        <div class="scn" data-scn="everyday">
+          <p class="hint">Normal conditions. Tick <b>Rush hour</b> to slow the main roads. Pick two points on the Route tab to get a GPS-style route.</p>
+        </div>
+
+        <div class="scn hidden" data-scn="flood">
+          <label class="slider">Water level <b id="floodLvlV"></b>
+            <input type="range" id="floodLvl" step="0.1"></label>
+          <div class="row">
+            <button class="btn" id="floodPick">Place flood source</button>
+            <button class="btn ghost" id="floodClear">Clear source</button>
+          </div>
+          <label class="chk"><input type="checkbox" id="floodConn" checked> Water must spread from the source (connected flooding)</label>
+          <p class="hint">Roads at or below the water level are cut (bridges stay open). On foot you can wade through water up to 0.5 m deep (3× slower); deeper water blocks the road. Elevation is SRTM 30 m, so treat the result as indicative.</p>
+        </div>
+
+        <div class="scn hidden" data-scn="fire">
+          <div class="row">
+            <button class="btn" id="fireAdd">Add ignition point</button>
+            <button class="btn ghost" id="fireClear">Clear</button>
+          </div>
+          <label class="slider">Time since ignition <b id="fireTV"></b>
+            <input type="range" id="fireT" min="0" max="90" value="10" step="1"></label>
+          <label class="slider">Fire spread speed <b id="fireSV"></b>
+            <input type="range" id="fireS" min="10" max="150" value="45" step="5"></label>
+          <label class="slider">Wind blowing towards <b id="fireWV"></b>
+            <input type="range" id="fireW" min="0" max="359" value="90" step="5"></label>
+          <label class="slider">Wind strength <b id="fireKV"></b>
+            <input type="range" id="fireK" min="0" max="80" value="40" step="5"></label>
+          <label class="slider">Safety margin on arrival <b id="fireMV"></b>
+            <input type="range" id="fireM" min="0" max="300" value="60" step="15"></label>
+          <p class="hint">Fire spreads along the street graph (multi-source Dijkstra), faster downwind. Routes must reach every road node before the fire does (time-dependent search).</p>
+        </div>
+
+        <div class="scn hidden" data-scn="quake">
+          <div class="row">
+            <button class="btn" id="quakePick">Place epicentre</button>
+            <button class="btn ghost" id="quakeClear">Clear</button>
+          </div>
+          <label class="slider">Magnitude <b id="qMagV"></b>
+            <input type="range" id="qMag" min="4" max="8" step="0.1" value="6.5"></label>
+          <label class="slider">Road fragility <b id="qFragV"></b>
+            <input type="range" id="qFrag" min="0.02" max="1" step="0.01" value="0.15"></label>
+          <div class="row">
+            <button class="btn" id="qReroll">Re-roll damage</button>
+            <label class="inl">Trials <input type="number" id="qTrials" value="100" min="10" max="500"></label>
+          </div>
+          <button class="btn primary" id="qMC">Run Monte Carlo reliability</button>
+          <div id="qOut" class="out"></div>
+          <p class="hint">Each road segment fails at random; probability falls with distance from the epicentre and bridges are 15× more fragile. Fragility scales every probability. Red segments show one random outcome.</p>
+        </div>
+      </div>
+      <div class="stat" id="scnInfo"></div>
+    </section>
+
+    <!-- ============ Tools ============ -->
+    <nav class="tabs" id="tabs">
+      <button data-tab="route" class="on">Route</button>
+      <button data-tab="service">Services</button>
+      <button data-tab="evac">Evacuate</button>
+      <button data-tab="net">Network</button>
+      <button data-tab="trip">Trip</button>
+    </nav>
+
+    <section class="card tab on" id="tab-route">
+      <h2>2 · Route <small>algorithm toggle</small></h2>
+      <div class="row">
+        <button class="btn" id="pickA">A  Set origin</button>
+        <button class="btn" id="pickB">B  Set destination</button>
+        <button class="btn ghost" id="swapAB" title="Swap A and B">⇄</button>
+        <button class="btn ghost" id="clearAB">Clear</button>
+      </div>
+      <div class="row">
+        <span class="lbl">Or nearest</span>
+        <select id="nearType">
+          <option value="">— pick B on the map —</option>
+          <option value="hospital">hospital</option>
+          <option value="shelter">shelter</option>
+          <option value="fire_station">fire station</option>
+        </select>
+      </div>
+      <div class="row">
+        <span class="lbl">Algorithm</span>
+        <select id="algo">
+          <option value="astar">A* (haversine heuristic)</option>
+          <option value="dijkstra">Dijkstra</option>
+          <option value="bidir">Bidirectional Dijkstra</option>
+          <option value="bf">Bellman-Ford</option>
+        </select>
+      </div>
+      <div class="row">
+        <span class="lbl">Optimise</span>
+        <select id="metric">
+          <option value="time">Travel time</option>
+          <option value="distance">Distance</option>
+        </select>
+        <label class="inl">Routes <input type="number" id="kAlt" value="1" min="1" max="5"></label>
+      </div>
+      <label class="chk"><input type="checkbox" id="showExplored" checked> Show nodes the algorithm explored</label>
+      <div id="routeOut" class="out"></div>
+      <div class="row">
+        <button class="btn primary" id="btnCompare">Compare all algorithms</button>
+      </div>
+      <div class="row">
+        <button class="btn" id="btnBench">Benchmark</button>
+        <label class="inl"><input type="number" id="benchN" value="30" min="5" max="200"> random pairs</label>
+      </div>
+      <div id="cmpOut" class="out"></div>
+      <p class="hint">“Routes” above 1 uses Yen’s k-shortest-paths (A* for each spur search) to show alternatives.</p>
+    </section>
+
+    <section class="card tab" id="tab-service">
+      <h2>Service areas <small>multi-source Dijkstra</small></h2>
+      <div class="row">
+        <span class="lbl">Reach a</span>
+        <select id="svcType">
+          <option value="hospital">hospital</option>
+          <option value="fire_station">fire station</option>
+          <option value="shelter">shelter</option>
+        </select>
+        <label class="inl"><input type="number" id="svcMax" value="15" min="3" max="60"> min</label>
+      </div>
+      <button class="btn primary" id="btnService">Show catchment</button>
+      <div id="svcOut" class="out"></div>
+      <p class="hint">One reverse search starts from every facility at once, so each road node learns its nearest facility and travel time in a single pass.</p>
+    </section>
+
+    <section class="card tab" id="tab-evac">
+      <h2>Evacuation plan <small>min-cost max-flow</small></h2>
+      <div class="grid2">
+        <label class="inl">People / building <input type="number" id="evPer" value="4" min="1" max="30"></label>
+        <label class="inl">Zones <input type="number" id="evZones" value="40" min="5" max="150"></label>
+        <label class="inl">School cap <input type="number" id="capSchool" value="600"></label>
+        <label class="inl">College cap <input type="number" id="capCollege" value="1200"></label>
+        <label class="inl">Community hall cap <input type="number" id="capCommunity" value="400"></label>
+        <label class="inl">Other shelter cap <input type="number" id="capOther" value="200"></label>
+      </div>
+      <p class="hint" id="popNote"></p>
+      <button class="btn primary" id="btnPlan">Compute evacuation plan</button>
+      <label class="chk"><input type="checkbox" id="evLoad" checked> Show road load</label>
+      <div id="evOut" class="out"></div>
+      <h3>Where should new shelters go?</h3>
+      <div class="row">
+        <label class="inl">New shelters <input type="number" id="plK" value="5" min="1" max="15"></label>
+        <label class="inl">Within <input type="number" id="plT" value="10" min="2" max="40"> min</label>
+      </div>
+      <button class="btn" id="btnPlace">Suggest sites (greedy max-coverage)</button>
+      <div id="plOut" class="out"></div>
+    </section>
+
+    <section class="card tab" id="tab-net">
+      <h2>Network weak points <small>structure of the road graph</small></h2>
+      <button class="btn primary" id="btnBridges">Find bridges and cut points (Tarjan)</button>
+      <div class="row">
+        <button class="btn" id="btnBC">Critical roads (betweenness)</button>
+        <label class="inl"><input type="number" id="bcK" value="80" min="10" max="400"> sample sources</label>
+      </div>
+      <button class="btn ghost" id="btnNetClear">Clear overlays</button>
+      <div id="netOut" class="out"></div>
+    </section>
+
+    <section class="card tab" id="tab-trip">
+      <h2>Multi-stop trip <small>travelling salesman</small></h2>
+      <div class="row">
+        <button class="btn" id="stopAdd">Add stops on map</button>
+        <button class="btn ghost" id="stopDone">Done</button>
+        <button class="btn ghost" id="stopClear">Clear</button>
+      </div>
+      <button class="btn primary" id="btnTrip">Plan round trip</button>
+      <div id="tripOut" class="out"></div>
+      <p class="hint">Stop 1 is the start and end. Compares nearest-neighbour, 2-opt and the exact Held-Karp dynamic programme (up to 10 stops).</p>
+    </section>
+
+    <label class="chk placesToggle"><input type="checkbox" id="showPlaces" checked> Show hospitals, schools and other places on the map</label>
+  </aside>
+
+  <main id="mapwrap">
+    <div id="map"></div>
+    <div id="pickHint" class="pickhint hidden"></div>
+    <div id="legend" class="legend hidden"></div>
+    <div id="toast" class="toast hidden"></div>
+  </main>
+</div>
+
+<script src="lib/leaflet.js"></script>
+<script src="data/dataset.js"></script>
+<script src="js/core.js"></script>
+<script src="js/graph.js"></script>
+<script src="js/algos.js"></script>
+<script src="js/scenarios.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
