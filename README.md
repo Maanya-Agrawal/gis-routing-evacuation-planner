@@ -4,8 +4,6 @@ A static web app (no server, no database) for the real road network of **Tambara
 OpenStreetMap roads, places and buildings plus SRTM elevation, runs every algorithm in the browser, and draws
 the results on a Leaflet map. All algorithms are written from scratch in JavaScript.
 
-Mini project report: [`docs/Mini_Project_Report.pdf`](docs/Mini_Project_Report.pdf)
-
 ![Main screen](screenshots/02-main-screen.jpg)
 
 ## Quick start
